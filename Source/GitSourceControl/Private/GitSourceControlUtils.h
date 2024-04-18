@@ -230,7 +230,9 @@ void CheckRemote(const FString& InPathToGitBinary, const FString& InRepositoryRo
  */
 bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles,
 					 TArray<FString>& OutErrorMessages, TMap<FString, FGitSourceControlState>& OutStates);
-	
+
+#if ENGINE_MAJOR_VERSION >= 5
+
 /**
  * Keep Consistency of being file staged
  *
@@ -239,14 +241,17 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
  * @param   ObjectSaveContext	Context for save (for adapting delegate)
  */
 void UpdateFileStagingOnSaved(const FString& Filename, UPackage* Pkg, FObjectPostSaveContext ObjectSaveContext);
-	
+
+
 /**
  * Keep Consistency of being file staged with simple argument
  *
  * @param	Filename			Saved filename
  */
 bool UpdateFileStagingOnSavedInternal(const FString& Filename);
-	
+
+#endif
+
 /**
  * 
  *
@@ -255,7 +260,8 @@ bool UpdateFileStagingOnSavedInternal(const FString& Filename);
  * @param   ObjectSaveContext	Context for save (for adapting delegate)
  */    
 void UpdateStateOnAssetRename(const FAssetData& InAssetData, const FString& InOldName);
-	
+
+#if ENGINE_MAJOR_VERSION >= 5
 /**
  * 
  *
@@ -264,6 +270,7 @@ void UpdateStateOnAssetRename(const FAssetData& InAssetData, const FString& InOl
  * @param   ObjectSaveContext	Context for save (for adapting delegate)
  */
 bool UpdateChangelistStateByCommand();
+#endif
 	
 /**
  * Run a Git "cat-file" command to dump the binary content of a revision into a file.

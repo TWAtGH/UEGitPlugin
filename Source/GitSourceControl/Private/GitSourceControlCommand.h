@@ -117,8 +117,10 @@ public:
 	/** Files to perform this operation on */
 	TArray<FString> Files;
 
+#if ENGINE_MAJOR_VERSION >= 5
 	/** Changelist to perform this operation on */
 	FGitSourceControlChangelist Changelist;
+#endif
 
 	/** Potential error, warning and info message storage */
 	FGitSourceControlResultInfo ResultInfo;

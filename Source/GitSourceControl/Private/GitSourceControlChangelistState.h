@@ -1,4 +1,8 @@
 ﻿#pragma once
+
+#if ENGINE_MAJOR_VERSION >= 5
+
+
 #include "GitSourceControlChangelist.h"
 #include "ISourceControlChangelistState.h"
 #include "ISourceControlState.h"
@@ -82,3 +86,5 @@ public:
 	/** The timestamp of the last update */
 	FDateTime TimeStamp;
 };
+
+#endif

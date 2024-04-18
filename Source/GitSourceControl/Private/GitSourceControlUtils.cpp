@@ -34,7 +34,10 @@
 #include "PackageTools.h"
 #include "FileHelpers.h"
 #include "Misc/MessageDialog.h"
+
+#if ENGINE_MAJOR_VERSION >= 5
 #include "UObject/ObjectSaveContext.h"
+#endif
 
 #include "Async/Async.h"
 #include "UObject/Linker.h"
@@ -1313,55 +1316,49 @@ static void ParseFileStatusResult(const FString& InPathToGitBinary, const FStrin
 #endif
 			}
 		}
-		if (!InUsingLfsLocking)
+
+		if (InUsingLfsLocking && (FileState.State.TreeState != ETreeState::Ignored) && IsFileLFSLockable(File))
 		{
-			FileState.State.LockState = ELockState::Unlockable;
-		}
-		else
-		{
-			if (IsFileLFSLockable(File))
+			if (!bCheckedLockedFiles)
 			{
-				if (!bCheckedLockedFiles)
+				bCheckedLockedFiles = true;
+				TArray<FString> ErrorMessages;
+				GetAllLocks(InRepositoryRoot, InPathToGitBinary, ErrorMessages, LockedFiles);
+				FTSMessageLog SourceControlLog("SourceControl");
+				for (int32 ErrorIndex = 0; ErrorIndex < ErrorMessages.Num(); ++ErrorIndex)
 				{
-					bCheckedLockedFiles = true;
-					TArray<FString> ErrorMessages;
-					GetAllLocks(InRepositoryRoot, InPathToGitBinary, ErrorMessages, LockedFiles);
-					FTSMessageLog SourceControlLog("SourceControl");
-					for (int32 ErrorIndex = 0; ErrorIndex < ErrorMessages.Num(); ++ErrorIndex)
-					{
-						SourceControlLog.Error(FText::FromString(ErrorMessages[ErrorIndex]));
-					}
+					SourceControlLog.Error(FText::FromString(ErrorMessages[ErrorIndex]));
 				}
-				if (LockedFiles.Contains(File))
+			}
+
+			if (LockedFiles.Contains(File))
+			{
+				FileState.State.LockUser = LockedFiles[File];
+				if (LfsUserName == FileState.State.LockUser)
 				{
-					FileState.State.LockUser = LockedFiles[File];
-					if (LfsUserName == FileState.State.LockUser)
-					{
-						FileState.State.LockState = ELockState::Locked;
-					}
-					else
-					{
-						FileState.State.LockState = ELockState::LockedOther;
-					}
+					FileState.State.LockState = ELockState::Locked;
 				}
 				else
 				{
-					FileState.State.LockState = ELockState::NotLocked;
-#if UE_BUILD_DEBUG && GIT_DEBUG_STATUS
-					UE_LOG(LogSourceControl, Log, TEXT("Status(%s) Not Locked"), *File);
-#endif
+					FileState.State.LockState = ELockState::LockedOther;
 				}
+#if UE_BUILD_DEBUG && GIT_DEBUG_STATUS
+				UE_LOG(LogSourceControl, Log, TEXT("Status(%s) Locked by '%s'"), *File, *FileState.State.LockUser);
+#endif
 			}
 			else
 			{
-				FileState.State.LockState = ELockState::Unlockable;
-			}
-			
-			
+				FileState.State.LockState = ELockState::NotLocked;
 #if UE_BUILD_DEBUG && GIT_DEBUG_STATUS
-			UE_LOG(LogSourceControl, Log, TEXT("Status(%s) Locked by '%s'"), *File, *FileState.State.LockUser);
+				UE_LOG(LogSourceControl, Log, TEXT("Status(%s) Not Locked"), *File);
 #endif
+			}
 		}
+		else
+		{
+			FileState.State.LockState = ELockState::Unlockable;
+		}
+
 		OutStates.Add(File, MoveTemp(FileState));
 	}
 
@@ -1629,6 +1626,7 @@ FString GetFullPathFromGitStatus(const FString& Result, const FString& InReposit
 	return File;
 }
 
+#if ENGINE_MAJOR_VERSION >= 5
 bool UpdateChangelistStateByCommand()
 {
 	FGitSourceControlModule& GitSourceControl = FModuleManager::GetModuleChecked<FGitSourceControlModule>("GitSourceControl");
@@ -1672,6 +1670,7 @@ bool UpdateChangelistStateByCommand()
 	}
 	return true;
 }
+#endif
 	
 // Run a batch of Git "status" command to update status of given files and/or directories.
 bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles,
@@ -1688,7 +1687,8 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 	TArray<FString> Parameters;
 	Parameters.Add(TEXT("--porcelain"));
 	Parameters.Add(TEXT("-uall")); // make sure we use -uall to list all files instead of directories
-	// We skip checking ignored since no one ignores files that Unreal would read in as revision controlled (Content/{*.uasset,*.umap},Config/*.ini).
+	Parameters.Add(TEXT("--ignored")); // also get ignored files so they can be handled properly
+	
 	TArray<FString> Results;
 	// avoid locking the index when not needed (useful for status updates)
 	const bool bResult = RunCommand(TEXT("--no-optional-locks status"), InPathToGitBinary, InRepositoryRoot, Parameters, RepoFiles, Results, OutErrorMessages);
@@ -1699,23 +1699,47 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 		const FString& File = FPaths::ConvertRelativePathToFull(InRepositoryRoot, RelativeFilename);
 		ResultsMap.Add(File, Result);
 	}
+
 	if (bResult)
 	{
+		// if we still didn't get a state for each file, we must check if the file would match an ignore pattern
+		// for example, if a new asset is generated, the engine will ask for the state before the asset is actually saved.
+		// in this case, git status won't return a state for this file because it doesn't exist yet.
+		if(Results.Num() < InFiles.Num())
+		{
+			Results.Reset();
+			
+			if(RunCommand(TEXT("check-ignore"), InPathToGitBinary, InRepositoryRoot, {}, RepoFiles, Results, OutErrorMessages))
+			{
+				// each path returned by check-ignore is actually an ignored file, thus add the corresponding entry to the result map
+				for(const FString& IgnoredFilePath : Results)
+				{
+					FString RelativeFilePath = IgnoredFilePath;
+					FPaths::MakePathRelativeTo(RelativeFilePath, *(InRepositoryRoot / TEXT("")));
+					
+					ResultsMap.Add(IgnoredFilePath, TEXT("!! ") + RelativeFilePath);
+				}
+			}
+		}
+
 		ParseStatusResults(InPathToGitBinary, InRepositoryRoot, InUsingLfsLocking, RepoFiles, ResultsMap, OutStates);
 	}
 	
+#if ENGINE_MAJOR_VERSION >= 5
 	UpdateChangelistStateByCommand();
+#endif
 
 	CheckRemote(InPathToGitBinary, InRepositoryRoot, RepoFiles, OutErrorMessages, OutStates);
 
 	return bResult;
 }
 
+#if ENGINE_MAJOR_VERSION >= 5
 void UpdateFileStagingOnSaved(const FString& Filename, UPackage* Pkg, FObjectPostSaveContext ObjectSaveContext)
 {
 	UpdateFileStagingOnSavedInternal(Filename);
 }
-	
+
 bool UpdateFileStagingOnSavedInternal(const FString& Filename)
 {
 	bool bResult = false;
@@ -1738,6 +1762,7 @@ bool UpdateFileStagingOnSavedInternal(const FString& Filename)
 	
 	return bResult;
 }
+#endif
 	
 void UpdateStateOnAssetRename(const FAssetData& InAssetData, const FString& InOldName)
 {
@@ -1749,7 +1774,12 @@ void UpdateStateOnAssetRename(const FAssetData& InAssetData, const FString& InOl
 	}
 	TSharedRef<FGitSourceControlState, ESPMode::ThreadSafe> State = Provider.GetStateInternal(InOldName);	
 	
+	
+#if ENGINE_MAJOR_VERSION >= 5
 	State->LocalFilename = InAssetData.GetObjectPathString();
+#else
+	State->LocalFilename = InAssetData.ObjectPath.ToString();
+#endif
 }
 
 // Run a Git `cat-file --filters` command to dump the binary content of a revision into a file.

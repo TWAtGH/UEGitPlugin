@@ -868,10 +868,13 @@ bool FGitMoveToChangelistWorker::UpdateStates() const
 
 bool FGitMoveToChangelistWorker::Execute(FGitSourceControlCommand& InCommand)
 {
+	bool bResult = false;
+
+#if ENGINE_MAJOR_VERSION >= 5
 	check(InCommand.Operation->GetName() == GetName());
 
 	FGitSourceControlChangelist DestChangelist = InCommand.Changelist;
-	bool bResult = false;
+	
 	if(DestChangelist.GetName().Equals(TEXT("Staged")))
 	{
 		bResult = GitSourceControlUtils::RunCommand(TEXT("add"), InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, FGitSourceControlModule::GetEmptyStringArray(), InCommand.Files, InCommand.ResultInfo.InfoMessages, InCommand.ResultInfo.ErrorMessages);
@@ -882,12 +885,14 @@ bool FGitMoveToChangelistWorker::Execute(FGitSourceControlCommand& InCommand)
 		Parameter.Add(TEXT("--staged"));
 		bResult = GitSourceControlUtils::RunCommand(TEXT("restore"), InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, Parameter, InCommand.Files, InCommand.ResultInfo.InfoMessages, InCommand.ResultInfo.ErrorMessages);
 	}
-	
+
 	if (bResult)
 	{
 		TMap<FString, FGitSourceControlState> DummyStates;
 		GitSourceControlUtils::RunUpdateStatus(InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, InCommand.bUsingGitLfsLocking, InCommand.Files, InCommand.ResultInfo.InfoMessages, DummyStates);
 	}
+#endif
+
 	return bResult;
 }
 
@@ -898,7 +903,11 @@ FName FGitUpdateStagingWorker::GetName() const
 
 bool FGitUpdateStagingWorker::Execute(FGitSourceControlCommand& InCommand)
 {
+#if ENGINE_MAJOR_VERSION >= 5
 	return GitSourceControlUtils::UpdateChangelistStateByCommand();
+#else
+	return false;
+#endif
 }
 
 bool FGitUpdateStagingWorker::UpdateStates() const

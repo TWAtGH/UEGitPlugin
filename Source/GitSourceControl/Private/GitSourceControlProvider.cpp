@@ -28,7 +28,10 @@
 #include "Misc/App.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/MessageDialog.h"
+
+#if ENGINE_MAJOR_VERSION >= 5
 #include "UObject/ObjectSaveContext.h"
+#endif
 
 #define LOCTEXT_NAMESPACE "GitSourceControl"
 
@@ -48,7 +51,9 @@ void FGitSourceControlProvider::Init(bool bForceConnection)
 		CheckGitAvailability();
 	}
 
+#if ENGINE_MAJOR_VERSION >= 5
 	UPackage::PackageSavedWithContextEvent.AddStatic(&GitSourceControlUtils::UpdateFileStagingOnSaved);
+#endif
 	
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
 	AssetRegistryModule.Get().OnAssetRenamed().AddStatic(&GitSourceControlUtils::UpdateStateOnAssetRename);	
@@ -262,6 +267,7 @@ TSharedRef<FGitSourceControlState, ESPMode::ThreadSafe> FGitSourceControlProvide
 	}
 }
 
+#if ENGINE_MAJOR_VERSION >= 5
 TSharedRef<FGitSourceControlChangelistState, ESPMode::ThreadSafe> FGitSourceControlProvider::GetStateInternal(const FGitSourceControlChangelist& InChangelist)
 {
 	TSharedRef<FGitSourceControlChangelistState, ESPMode::ThreadSafe>* State = ChangelistsStateCache.Find(InChangelist);
@@ -278,6 +284,7 @@ TSharedRef<FGitSourceControlChangelistState, ESPMode::ThreadSafe> FGitSourceCont
 		return NewState;
 	}
 }
+#endif
 
 FText FGitSourceControlProvider::GetStatusText() const
 {
@@ -461,8 +468,10 @@ ECommandResult::Type FGitSourceControlProvider::Execute( const FSourceControlOpe
 	Command->UpdateRepositoryRootIfSubmodule(AbsoluteFiles);
 	Command->OperationCompleteDelegate = InOperationCompleteDelegate;
 
+#if ENGINE_MAJOR_VERSION >= 5
 	TSharedPtr<FGitSourceControlChangelist, ESPMode::ThreadSafe> ChangelistPtr = StaticCastSharedPtr<FGitSourceControlChangelist>(InChangelist);
 	Command->Changelist = ChangelistPtr ? ChangelistPtr.ToSharedRef().Get() : FGitSourceControlChangelist();
+#endif
 	
 	// fire off operation
 	if(InConcurrency == EConcurrency::Synchronous)
